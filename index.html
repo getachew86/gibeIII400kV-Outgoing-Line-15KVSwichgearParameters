@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIBE III 400KV Outgoing Line & 15KV Switchgear Parameters</title>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <!-- Libraries for Excel & PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    
+    <style>
+        :root { --primary: #0056b3; --dark: #333; --light: #f4f7f6; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background: var(--light); font-size: 12px; }
+        .no-print { padding: 15px; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .btn { padding: 8px 15px; border: none; background: var(--primary); color: white; cursor: pointer; border-radius: 4px; font-weight: bold;}
+        .btn-danger { background: #dc3545; }
+        .btn-success { background: #28a745; }
+        input[type="text"], input[type="number"], input[type="date"], select { padding: 5px; border: 1px solid #ccc; border-radius: 3px; width: 100%; box-sizing: border-box; }
+        .container { padding: 20px; background: white; margin: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.05); overflow-x: auto; }
+        h1, h2 { text-align: center; margin: 5px 0; text-transform: uppercase; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; background: white; text-align: center; }
+        th, td { border: 1px solid #000; padding: 4px; font-size: 11px; }
+        th { background-color: #f2f2f2; }
+        .row-save-btn { background: #17a2b8; color: white; border: none; padding: 3px 8px; cursor: pointer; border-radius: 3px; }
+        #login-page { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:flex; justify-content:center; align-items:center; z-index:10000; }
+        .login-box { background: white; padding: 3px; border-radius: 8px; width: 320px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); padding: 30px; }
+        .login-box input { margin-bottom: 15px; padding: 10px; }
+        .hidden { display: none !important; }
+        @media print { .no-print { display: none !important; } .container { box-shadow: none; padding: 0; margin: 0; } }
+    </style>
+</head>
+<body>
+
+    <!-- 1. LOGIN PAGE -->
+    <div id="login-page">
+        <div class="login-box">
+            <h2>EEP System Login</h2>
+            <p>GIBE III Switchyard Log Sheet System</p>
+            <input type="email" id="login-email" placeholder="Email Address" required>
+            <input type="password" id="login-password" placeholder="Password" required>
+            <button class="btn" style="width:100%" onclick="loginUser()">Login</button>
+            <p id="login-error" style="color:red; margin-top:10px;"></p>
+        </div>
+    </div>
+
+    <!-- MAIN APP CONTENT -->
+    <div id="app-content" class="hidden">
+        
+        <!-- TOP NAVIGATION & CONTROL BAR (6. Search, 2,3,4 Export) -->
+        <div class="no-print">
+            <strong>Logged in as:</strong> <span id="user-display"></span> | <span id="role-display" style="color:blue"></span>
+            <input type="date" id="filter-date" style="width:150px;" onchange="loadDateData()">
+            <input type="text" id="search-box" placeholder="Search parameters..." style="width:200px;" onkeyup="searchTable()">
+            <button class="btn btn-success" onclick="saveEntireDay()">Save All to Firebase</button>
+            <button class="btn" onclick="window.print()">🖨️ Print Report</button>
+            <button class="btn" onclick="exportToPDF()">📄 Export PDF</button>
+            <button class="btn" onclick="exportToExcel()">📊 Export Excel</button>
+            <button class="btn btn-danger" onclick="logoutUser()">Logout</button>
+        </div>
+
+        <div class="container" id="printable-area">
+            <!-- HEADER FROM IMAGE image_2373e1.png -->
+            <table style="border: none; margin-bottom: 5px;">
+                <tr style="border: none;"><td style="border: none; font-size: 20px; font-weight: bold;">ETHIOPIAN ELECTRIC POWER</td></tr>
+                <tr style="border: none;"><td style="border: none; font-size: 16px; font-weight: bold;">1. GIBE III 400KV OUTGOING LINE PARAMETERS</td></tr>
+                <tr style="border: none;"><td style="border: none; text-align: right; font-weight: bold;">SWITCHYARD 400KV LOG SHEET</td></tr>
+            </table>
+
+            <!-- DATE REGION -->
+            <table style="margin-bottom: 10px;">
+                <tr>
+                    <td><strong>Date E.C:</strong> <input type="text" id="date-ec" style="border:none; text-align:center;"></td>
+                    <td><strong>Date G.C:</strong> <span id="current-date-display"></span></td>
+                </tr>
+            </table>
+
+            <!-- TABLE 1: 400KV PARAMETERS (1:00 to 24:00) -->
+            <table id="table-400kv">
+                <thead>
+                    <tr>
+                        <th rowspan="2">Time Hrs</th>
+                        <th rowspan="2">busbar voltage (kv)</th>
+                        <th rowspan="2">system frequency (Hz)</th>
+                        <th colspan="4">SODO LINE1</th>
+                        <th colspan="4">SODO LINE2</th>
+                        <th colspan="4">SODO LINE3</th>
+                        <th colspan="4">KONSHA LINE5</th>
+                        <th colspan="2">DC BATTERY CHARGER (A)</th>
+                        <th colspan="2">DC BATTERY CHARGER(B)</th>
+                        <th rowspan="2" class="no-print">Actions</th>
+                    </tr>
+                    <tr>
+                        <th>ACTIVE POWER (MW)</th><th>REACTIVE POWER (MVAR)</th><th>VOLTAGE (KV)</th><th>CURRENT (KA)</th>
+                        <th>ACTIVE POWER (MW)</th><th>REACTIVE POWER (MVAR)</th><th>VOLTAGE (KV)</th><th>CURRENT (KA)</th>
+                        <th>ACTIVE POWER (MW)</th><th>REACTIVE POWER (MVAR)</th><th>VOLTAGE (KV)</th><th>CURRENT (KA)</th>
+                        <th>ACTIVE POWER (MW)</th><th>REACTIVE POWER (MVAR)</th><th>VOLTAGE (KV)</th><th>CURRENT (KA)</th>
+                        <th>VOLTAGE (V)</th><th>CURRENT (A)</th>
+                        <th>VOLTAGE (V)</th><th>CURRENT (A)</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-400kv">
+                    <!-- Generated by JS from 1:00 to 0:00 (24:00) -->
+                </tbody>
+            </table>
+
+            <!-- ENERGY METER READING SECTION (Calculates Difference automatically) -->
+            <h2>ENERGY METER READING</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th colspan="2">SODO LINE1</th>
+                        <th colspan="2">SODO LINE2</th>
+                        <th colspan="2">SODO LINE 3</th>
+                        <th colspan="2">KONSHA LINE 5</th>
+                    </tr>
+                    <tr>
+                        <th>MWH</th><th>MVARH</th>
+                        <th>MWH</th><th>MVARH</th>
+                        <th>MWH</th><th>MVARH</th>
+                        <th>MWH</th><th>MVARH</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Present Reading</strong><br><input type="number" id="em-s1-mwh-pres" oninput="calcEnergy()"></td>
+                        <td><strong>Present Reading</strong><br><input type="number" id="em-s1-mvarh-pres" oninput="calcEnergy()"></td>
+                        <td><strong>Present Reading</strong><br><input type="number" id="em-s2-mwh-pres" oninput="calcEnergy()"></td>
+                        <td><strong>Present Reading</strong><br><input type="number" id="em-s2-mvarh-pres" oninput="calcEnergy()"></td>
+                        <td><strong>Present Reading</strong><br><input type="number" id="em-s3-mwh-pres" oninput="calcEnergy()"></td>
+                        <td><strong>Present Reading</strong><br><input type="number" id="em-s3-mvarh-pres" oninput="calcEnergy()"></td>
+                        <td><strong>Present Reading</strong><br><input type="number" id="em-k5-mwh-pres" oninput="calcEnergy()"></td>
+                        <td><strong>Present Reading</strong><br><input type="number" id="em-k5-mvarh-pres" oninput="calcEnergy()"></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Preceding Reading</strong><br><input type="number" id="em-s1-mwh-prec" oninput="calcEnergy()"></td>
+                        <td><strong>Preceding Reading</strong><br><input type="number" id="em-s1-mvarh-prec" oninput="calcEnergy()"></td>
+                        <td><strong>Preceding Reading</strong><br><input type="number" id="em-s2-mwh-prec" oninput="calcEnergy()"></td>
+                        <td><strong>Preceding Reading</strong><br><input type="number" id="em-s2-mvarh-prec" oninput="calcEnergy()"></td>
+                        <td><strong>Preceding Reading</strong><br><input type="number" id="em-s3-mwh-prec" oninput="calcEnergy()"></td>
+                        <td><strong>Preceding Reading</strong><br><input type="number" id="em-s3-mvarh-prec" oninput="calcEnergy()"></td>
+                        <td><strong>Preceding Reading</strong><br><input type="number" id="em-k5-mwh-prec" oninput="calcEnergy()"></td>
+                        <td><strong>Preceding Reading</strong><br><input type="number" id="em-k5-mvarh-prec" oninput="calcEnergy()"></td>
+                    </tr>
+                    <tr style="background:#e9ecef;">
+                        <td><strong>Difference:</strong> <span id="diff-s1-mwh">0</span></td>
+                        <td><strong>Difference:</strong> <span id="diff-s1-mvarh">0</span></td>
+                        <td><strong>Difference:</strong> <span id="diff-s2-mwh">0</span></td>
+                        <td><strong>Difference:</strong> <span id="diff-s2-mvarh">0</span></td>
+                        <td><strong>Difference:</strong> <span id="diff-s3-mwh">0</span></td>
+                        <td><strong>Difference:</strong> <span id="diff-s3-mvarh">0</span></td>
+                        <td><strong>Difference:</strong> <span id="diff-k5-mwh">0</span></td>
+                        <td><strong>Difference:</strong> <span id="diff-k5-mvarh">0</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Today's out put</strong><br><input type="text" id="out-s1-mwh"></td>
+                        <td><strong>Today's out put</strong><br><input type="text" id="out-s1-mvarh"></td>
+                        <td><strong>Today's out put</strong><br><input type="text" id="out-s2-mwh"></td>
+                        <td><strong>Today's out put</strong><br><input type="text" id="out-s2-mvarh"></td>
+                        <td><strong>Today's out put</strong><br><input type="text" id="out-s3-mwh"></td>
+                        <td><strong>Today's out put</strong><br><input type="text" id="out-s3-mvarh"></td>
+                        <td><strong>Today's out put</strong><br><input type="text" id="out-k5-mwh"></td>
+                        <td><strong>Today's out put</strong><br><input type="text" id="out-k5-mvarh"></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- LOWER SUBSTATION METERS (switchyard of plant station etc.) -->
+            <table>
+                <thead>
+                    <tr>
+                        <th colspan="2">switchyard of plant station</th>
+                        <th colspan="2">switchyard of zaro-gocho</th>
+                        <th colspan="2">Swichyard of Halala Kela</th>
+                        <th colspan="2">Swichyard of left(spare)</th>
+                    </tr>
+                    <tr>
+                        <th>KWH</th><th>KVARH</th>
+                        <th>KWH</th><th>KVARH</th>
+                        <th>KWH</th><th>KVARH</th>
+                        <th>KWH</th><th>KVARH</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Present:</strong> <input type="number" id="sw-ps-kwh-pres" oninput="calcSubEnergy()"></td>
+                        <td><strong>Present:</strong> <input type="number" id="sw-ps-kvarh-pres" oninput="calcSubEnergy()"></td>
+                        <td><strong>Present:</strong> <input type="number" id="sw-zg-kwh-pres" oninput="calcSubEnergy()"></td>
+                        <td><strong>Present:</strong> <input type="number" id="sw-zg-kvarh-pres" oninput="calcSubEnergy()"></td>
+                        <td><strong>Present:</strong> <input type="number" id="sw-hk-kwh-pres" oninput="calcSubEnergy()"></td>
+                        <td><strong>Present:</strong> <input type="number" id="sw-hk-kvarh-pres" oninput="calcSubEnergy()"></td>
+                        <td><strong>Present:</strong> <input type="number" id="sw-ls-kwh-pres" oninput="calcSubEnergy()"></td>
+                        <td><strong>Present:</strong> <input type="number" id="sw-ls-kvarh-pres" oninput="calcSubEnergy()"></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Preceding:</strong> <input type="number" id="sw-ps-kwh-prec" oninput="calcSubEnergy()"></td>
+                        <td><strong>Preceding:</strong> <input type="number" id="sw-ps-kvarh-prec" oninput="calcSubEnergy()"></td>
+                        <td><strong>Preceding:</strong> <input type="number" id="sw-zg-kwh-prec" oninput="calcSubEnergy()"></td>
+                        <td><strong>Preceding:</strong> <input type="number" id="sw-zg-kvarh-prec" oninput="calcSubEnergy()"></td>
+                        <td><strong>Preceding:</strong> <input type="number" id="sw-hk-kwh-prec" oninput="calcSubEnergy()"></td>
+                        <td><strong>Preceding:</strong> <input type="number" id="sw-hk-kvarh-prec" oninput="calcSubEnergy()"></td>
+                        <td><strong>Preceding:</strong> <input type="number" id="sw-ls-kwh-prec" oninput="calcSubEnergy()"></td>
+                        <td><strong>Preceding:</strong> <input type="number" id="sw-ls-kvarh-prec" oninput="calcSubEnergy()"></td>
+                    </tr>
+                    <tr style="background:#e9ecef;">
+                        <td><strong>Diff:</strong> <span id="diff-sw-ps-kwh">0</span></td>
+                        <td><strong>Diff:</strong> <span id="diff-sw-ps-kvarh">0</span></td>
+                        <td><strong>Diff:</strong> <span id="diff-sw-zg-kwh">0</span></td>
+                        <td><strong>Diff:</strong> <span id="diff-sw-zg-kvarh">0</span></td>
+                        <td><strong>Diff:</strong> <span id="diff-sw-hk-kwh">0</span></td>
+                        <td><strong>Diff:</strong> <span id="diff-sw-hk-kvarh">0</span></td>
+                        <td><strong>Diff:</strong> <span id="diff-sw-ls-kwh">0</span></td>
+                        <td><strong>Diff:</strong> <span id="diff-sw-ls-kvarh">0</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- OPERATOR SHIFTS SIGNATURES -->
+            <table style="background: #fdfdfd;">
+                <tr>
+                    <td><strong>SHIFT: MORNING (7:00-15:00)</strong></td>
+                    <td>TIME: 7:00-15:00</td>
+                    <td>GROUP OPERATOR NAME: <input type="text" id="op-m-name" style="width:70%"></td>
+                    <td>SIGN. <input type="text" id="op-m-sign" style="width:50%"></td>
+                </tr>
+                <tr>
+                    <td><strong>SHIFT: EVENING (15:00-22:00)</strong></td>
+                    <td>TIME: 15:00-22:00</td>
+                    <td>GROUP OPERATOR NAME: <input type="text" id="op-e-name" style="width:70%"></td>
+                    <td>SIGN. <input type="text" id="op-e-sign" style="width:50%"></td>
+                </tr>
+                <tr>
+                    <td><strong>SHIFT: NIGHT (22:00-7:00)</strong></td>
+                    <td>TIME: 22:00-7:00</td>
+                    <td>GROUP OPERATOR NAME: <input type="text" id="op-n-name" style="width:70%"></td>
+                    <td>SIGN. <input type="text" id="op-n-sign" style="width:50%"> REMARKS: <input type="text" id="op-n-remarks" style="width:70%"></td>
+                </tr>
+            </table>
+
+            <!-- SECTION 2: 66KV/15KV SWITCHGEAR -->
+            <h2>2. Sodo-GibeIII 66KV/15KV Switch Gear Hourly Reading data</h2>
+            <table id="table-66kv">
+                <thead>
+                    <tr>
+                        <th rowspan="2">Time Hrs</th>
+                        <th colspan="2">Battery & charger</th>
+                        <th colspan="4">Plant Station</th>
+                        <th colspan="4">Zaro-gocho</th>
+                        <th colspan="4">Halala Kela</th>
+                        <th colspan="4">Left (Spare)</th>
+                        <th rowspan="2">REMARKS</th>
+                        <th rowspan="2" class="no-print">Actions</th>
+                    </tr>
+                    <tr>
+                        <th>general condition</th><th>battrey fan ru /not</th>
+                        <th>current R (A)</th><th>Current S(A)</th><th>Current T(A)</th><th>Voltage (V)</th>
+                        <th>Current R(A)</th><th>Current S(A)</th><th>Current T(A)</th><th>Voltage (V)</th>
+                        <th>Current R(A)</th><th>Current S(A)</th><th>Current T(A)</th><th>Voltage (V)</th>
+                        <th>Current R(A)</th><th>Current S(A)</th><th>Current T(A)</th><th>Voltage (V)</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-66kv">
+                    <!-- Generated via JS -->
+                </tbody>
+            </table>
+            
+        </div>
+    </div>
+
+    <script>
+        // -------------------------------------------------------------
+        // FIREBASE CONFIGURATION (Replace with your actual credentials)
+        // -------------------------------------------------------------
+        const firebaseConfig = {
+  apiKey: "AIzaSyC05agCWQFw-ojOTzNxWM9EMDJjlWR4fi0",
+  authDomain: "gibeiii400kvoutgoingline.firebaseapp.com",
+  projectId: "gibeiii400kvoutgoingline",
+  storageBucket: "gibeiii400kvoutgoingline.firebasestorage.app",
+  messagingSenderId: "829801368261",
+  appId: "1:829801368261:web:b50c0061be99803be2feac",
+  measurementId: "G-M82JEM5L0X"
+};
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        let currentUser = null;
+        let userRole = 'operator'; // default role
+
+        // Initialize Dates (ቀን በቀን በራሱ የሚሞላ)
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('filter-date').value = today;
+        document.getElementById('current-date-display').innerText = today;
+
+        // Generate Time Rows (1:00 to 0:00)
+        const hours = [];
+        for(let i=1; i<=23; i++) hours.push(`${i}:00`);
+        hours.push(`0:00`);
+
+        // Render Tables
+        const tbody400 = document.getElementById('tbody-400kv');
+        const tbody66 = document.getElementById('tbody-66kv');
+
+        hours.forEach(hr => {
+            // Table 1 Row
+            tbody400.innerHTML += `
+                <tr id="row-400kv-${hr.replace(':','-')}">
+                    <td><strong>${hr}</strong></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="busbar"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="freq"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s1_mw"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s1_mvar"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s1_kv"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s1_ka"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s2_mw"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s2_mvar"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s2_kv"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s2_ka"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s3_mw"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s3_mvar"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s3_kv"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="s3_ka"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="k5_mw"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="k5_mvar"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="k5_kv"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="k5_ka"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="cha_v"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="cha_a"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="chb_v"></td>
+                    <td><input type="number" step="any" class="p-400" data-hr="${hr}" data-field="chb_a"></td>
+                    <td class="no-print"><button class="row-save-btn" onclick="saveRow('400kv','${hr}')">Save</button></td>
+                </tr>`;
+
+            // Table 2 Row
+            tbody66.innerHTML += `
+                <tr id="row-66kv-${hr.replace(':','-')}">
+                    <td><strong>${hr}</strong></td>
+                    <td><input type="text" class="p-66" data-hr="${hr}" data-field="gen_cond"></td>
+                    <td><input type="text" class="p-66" data-hr="${hr}" data-field="fan_stat"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="ps_r"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="ps_s"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="ps_t"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="ps_v"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="zg_r"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="zg_s"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="zg_t"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="zg_v"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="hk_r"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="hk_s"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="hk_t"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="hk_v"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="ls_r"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="ls_s"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="ls_t"></td>
+                    <td><input type="number" step="any" class="p-66" data-hr="${hr}" data-field="ls_v"></td>
+                    <td><input type="text" class="p-66" data-hr="${hr}" data-field="remarks"></td>
+                    <td class="no-print"><button class="row-save-btn" onclick="saveRow('66kv','${hr}')">Save</button></td>
+                </tr>`;
+        });
+
+        // 1. LOGIN SYSTEM
+        function loginUser() {
+            const email = document.getElementById('login-email').value;
+            const pass = document.getElementById('login-password').value;
+            auth.signInWithEmailAndPassword(email, pass).then(cred => {
+                document.getElementById('login-page').classList.add('hidden');
+                document.getElementById('app-content').classList.remove('hidden');
+                currentUser = cred.user;
+                document.getElementById('user-display').innerText = currentUser.email;
+                
+                // 7. ADMIN ONLY Validation
+                if(email.includes('admin')) {
+                    userRole = 'admin';
+                    document.getElementById('role-display').innerText = "(Administrator - Full Access)";
+                } else {
+                    userRole = 'operator';
+                    document.getElementById('role-display').innerText = "(Operator - View/Input Only)";
+                }
+                loadDateData();
+                loadPrecedingFromYesterday();
+            }).catch(err => {
+                document.getElementById('login-error').innerText = err.message;
+            });
+        }
+
+        function logoutUser() {
+            auth.signOut().then(() => {
+                location.reload();
+            });
+        }
+
+        // AUTO-CALCULATE DIFFERENCES (Present - Preceding)
+        function calcEnergy() {
+            const fields = ['s1-mwh', 's1-mvarh', 's2-mwh', 's2-mvarh', 's3-mwh', 's3-mvarh', 'k5-mwh', 'k5-mvarh'];
+            fields.forEach(f => {
+                const pres = parseFloat(document.getElementById(`em-${f}-pres`).value) || 0;
+                const prec = parseFloat(document.getElementById(`em-${f}-prec`).value) || 0;
+                document.getElementById(`diff-${f}`).innerText = (pres - prec).toFixed(2);
+            });
+        }
+        function calcSubEnergy() {
+            const fields = ['ps-kwh', 'ps-kvarh', 'zg-kwh', 'zg-kvarh', 'hk-kwh', 'hk-kvarh', 'ls-kwh', 'ls-kvarh'];
+            fields.forEach(f => {
+                const pres = parseFloat(document.getElementById(`sw-${f}-pres`).value) || 0;
+                const prec = parseFloat(document.getElementById(`sw-${f}-prec`).value) || 0;
+                document.getElementById(`diff-${f}`).innerText = (pres - prec).toFixed(2);
+            });
+        }
+
+        // PRECEDING FLOW FROM PREVIOUS DAY
+        function loadPrecedingFromYesterday() {
+            const selectedDate = document.getElementById('filter-date').value;
+            let yesterday = new Date(selectedDate);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yestStr = yesterday.toISOString().split('T')[0];
+
+            db.collection('daily_logs').doc(yestStr).get().then(doc => {
+                if(doc.exists && doc.data().energy_meters) {
+                    const yestData = doc.data().energy_meters;
+                    // የትናንቱ Present የዛሬው Preceding ይሆናል
+                    document.getElementById('em-s1-mwh-prec').value = yestData.s1_mwh_pres || '';
+                    document.getElementById('em-s1-mvarh-prec').value = yestData.s1_mvarh_pres || '';
+                    document.getElementById('em-s2-mwh-prec').value = yestData.s2_mwh_pres || '';
+                    document.getElementById('em-s2-mvarh-prec').value = yestData.s2_mvarh_pres || '';
+                    document.getElementById('em-s3-mwh-prec').value = yestData.s3_mwh_pres || '';
+                    document.getElementById('em-s3-mvarh-prec').value = yestData.s3_mvarh_pres || '';
+                    document.getElementById('em-k5-mwh-prec').value = yestData.k5_mwh_pres || '';
+                    document.getElementById('em-k5-mvarh-prec').value = yestData.k5_mvarh_pres || '';
+                    calcEnergy();
+                }
+            });
+        }
+
+        // FIREBASE SAVE (ROW BY ROW) & ENTIRE DAY
+        function saveRow(type, hr) {
+            const date = document.getElementById('filter-date').value;
+            let rowData = {};
+            const inputs = document.querySelectorAll(`.p-${type === '400kv' ? '400' : '66'}[data-hr="${hr}"]`);
+            inputs.forEach(input => {
+                rowData[input.dataset.field] = input.value;
+            });
+
+            db.collection('daily_logs').doc(date).collection(type).doc(hr.replace(':','-')).set(rowData)
+            .then(() => alert(`Row ${hr} Saved Successfully!`))
+            .catch(err => alert("Error saving row: " + err));
+        }
+
+        function saveEntireDay() {
+            const date = document.getElementById('filter-date').value;
+            const energyMeters = {
+                s1_mwh_pres: document.getElementById('em-s1-mwh-pres').value,
+                s1_mvarh_pres: document.getElementById('em-s1-mvarh-pres').value,
+                s2_mwh_pres: document.getElementById('em-s2-mwh-pres').value,
+                s2_mvarh_pres: document.getElementById('em-s2-mvarh-pres').value,
+                s3_mwh_pres: document.getElementById('em-s3-mwh-pres').value,
+                s3_mvarh_pres: document.getElementById('em-s3-mvarh-pres').value,
+                k5_mwh_pres: document.getElementById('em-k5-mwh-pres').value,
+                k5_mvarh_pres: document.getElementById('em-k5-mvarh-pres').value,
+            };
+
+            db.collection('daily_logs').doc(date).set({
+                date_ec: document.getElementById('date-ec').value,
+                energy_meters: energyMeters,
+                savedBy: currentUser.email,
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).then(() => alert("All master data saved to Firebase!"));
+        }
+
+        // LOAD DATA FOR SELECTED DATE
+        function loadDateData() {
+            const date = document.getElementById('filter-date').value;
+            document.getElementById('current-date-display').innerText = date;
+            
+            // Clear inputs first
+            document.querySelectorAll('input[type="number"], input[type="text"]').forEach(i => i.value = '');
+
+            db.collection('daily_logs').doc(date).get().then(doc => {
+                if(doc.exists) {
+                    const data = doc.data();
+                    if(data.date_ec) document.getElementById('date-ec').value = data.date_ec;
+                    if(data.energy_meters) {
+                        const em = data.energy_meters;
+                        document.getElementById('em-s1-mwh-pres').value = em.s1_mwh_pres || '';
+                        document.getElementById('em-s1-mvarh-pres').value = em.s1_mvarh_pres || '';
+                        document.getElementById('em-s2-mwh-pres').value = em.s2_mwh_pres || '';
+                        document.getElementById('em-s2-mvarh-pres').value = em.s2_mvarh_pres || '';
+                        document.getElementById('em-s3-mwh-pres').value = em.s3_mwh_pres || '';
+                        document.getElementById('em-s3-mvarh-pres').value = em.s3_mvarh_pres || '';
+                        document.getElementById('em-k5-mwh-pres').value = em.k5_mwh_pres || '';
+                        document.getElementById('em-k5-mvarh-pres').value = em.k5_mvarh_pres || '';
+                    }
+                    calcEnergy();
+                }
+            });
+
+            // Load hourly rows
+            hours.forEach(hr => {
+                let hrId = hr.replace(':','-');
+                db.collection('daily_logs').doc(date).collection('400kv').doc(hrId).get().then(s => {
+                    if(s.exists) {
+                        let d = s.data();
+                        Object.keys(d).forEach(k => {
+                            let input = document.querySelector(`.p-400[data-hr="${hr}"][data-field="${k}"]`);
+                            if(input) input.value = d[k];
+                        });
+                    }
+                });
+            });
+        }
+
+        // 6. SEARCH BOX FUNCTIONALITY
+        function searchTable() {
+            let input = document.getElementById("search-box").value.toUpperCase();
+            let rows = document.querySelectorAll("#table-400kv tbody tr, #table-66kv tbody tr");
+            rows.forEach(row => {
+                row.style.display = row.innerText.toUpperCase().includes(input) ? "" : "none";
+            });
+        }
+
+        // 4. EXCEL EXPORT
+        function exportToExcel() {
+            let table1 = document.getElementById("table-400kv");
+            let wb = XLSX.utils.table_to_book(table1, {sheet: "400KV Parameters"});
+            XLSX.writeFile(wb, `GIBE_III_LogSheet_${document.getElementById('filter-date').value}.xlsx`);
+        }
+
+        // 3. PDF EXPORT
+        function exportToPDF() {
+            const { jsPDF } = window.jspdf;
+            let doc = new jsPDF('l', 'mm', 'a3');
+            doc.text("GIBE III 400KV & 15KV Log Sheet", 14, 10);
+            doc.autoTable({ html: '#table-400kv', startY: 20, theme: 'grid', styles: {fontSize: 8} });
+            doc.save(`GIBE_III_Log_${document.getElementById('filter-date').value}.pdf`);
+        }
+    </script>
+</body>
+</html>
